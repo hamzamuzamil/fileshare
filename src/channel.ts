@@ -4,6 +4,7 @@ import { Redis, getRedisClient } from './redisClient'
 import { generateShortSlug, generateLongSlug } from './slugs'
 import crypto from 'crypto'
 import { z } from 'zod'
+import { kv } from '@vercel/kv'
 
 export type Channel = {
   secret?: string
@@ -284,11 +285,92 @@ export class RedisChannelRepo implements ChannelRepo {
   }
 }
 
+export class VercelKVChannelRepo implements ChannelRepo {
+  async createChannel(
+    uploaderPeerID: string,
+    ttl: number = config.channel.ttl,
+  ): Promise<Channel> {
+    const shortSlug = await generateShortSlugUntilUnique(
+      async (key) => (await kv.get(key)) !== null,
+    )
+    const longSlug = await generateLongSlugUntilUnique(
+      async (key) => (await kv.get(key)) !== null,
+    )
+
+    const channel: Channel = {
+      secret: crypto.randomUUID(),
+      longSlug,
+      shortSlug,
+      uploaderPeerID,
+    }
+    const channelStr = serializeChannel(channel)
+
+    // Vercel KV uses set with ex option for expiration (in seconds)
+    await kv.set(getLongSlugKey(longSlug), channelStr, { ex: ttl })
+    await kv.set(getShortSlugKey(shortSlug), channelStr, { ex: ttl })
+
+    return channel
+  }
+
+  async fetchChannel(
+    slug: string,
+    scrubSecret = false,
+  ): Promise<Channel | null> {
+    const shortChannelStr = (await kv.get(getShortSlugKey(slug))) as
+      | string
+      | null
+    if (shortChannelStr) {
+      return deserializeChannel(shortChannelStr, scrubSecret)
+    }
+
+    const longChannelStr = (await kv.get(getLongSlugKey(slug))) as
+      | string
+      | null
+    if (longChannelStr) {
+      return deserializeChannel(longChannelStr, scrubSecret)
+    }
+
+    return null
+  }
+
+  async renewChannel(
+    slug: string,
+    secret: string,
+    ttl: number = config.channel.ttl,
+  ): Promise<boolean> {
+    const channel = await this.fetchChannel(slug)
+    if (!channel || channel.secret !== secret) {
+      return false
+    }
+
+    // Re-set with new TTL
+    const channelStr = serializeChannel(channel)
+    await kv.set(getLongSlugKey(channel.longSlug), channelStr, { ex: ttl })
+    await kv.set(getShortSlugKey(channel.shortSlug), channelStr, { ex: ttl })
+
+    return true
+  }
+
+  async destroyChannel(slug: string): Promise<void> {
+    const channel = await this.fetchChannel(slug)
+    if (!channel) {
+      return
+    }
+
+    await kv.del(getLongSlugKey(channel.longSlug))
+    await kv.del(getShortSlugKey(channel.shortSlug))
+  }
+}
+
 let _channelRepo: ChannelRepo | null = null
 
 export function getOrCreateChannelRepo(): ChannelRepo {
   if (!_channelRepo) {
-    if (process.env.REDIS_URL) {
+    // Check for Vercel KV first (KV_URL is set automatically by Vercel)
+    if (process.env.KV_URL || process.env.KV_REST_API_URL) {
+      _channelRepo = new VercelKVChannelRepo()
+      console.log('[ChannelRepo] Using Vercel KV storage')
+    } else if (process.env.REDIS_URL) {
       _channelRepo = new RedisChannelRepo()
       console.log('[ChannelRepo] Using Redis storage')
     } else {
