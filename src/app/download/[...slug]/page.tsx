@@ -1,7 +1,6 @@
 import { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { getOrCreateChannelRepo } from '../../../channel'
-import { Logo } from '../../../components/beamdrop/Logo/Logo'
 import { DownloadCard } from '../../../components/beamdrop/DownloadCard/DownloadCard'
 import WebRTCPeerProvider from '../../../components/WebRTCProvider'
 import ReportTermsViolationButton from '../../../components/ReportTermsViolationButton'
