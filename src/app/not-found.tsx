@@ -1,9 +1,6 @@
 import { JSX } from 'react'
-import Spinner from '../components/Spinner'
-import Wordmark from '../components/Wordmark'
 import ReturnHome from '../components/ReturnHome'
 import TitleText from '../components/TitleText'
-
 import { Logo } from '../components/beamdrop/Logo/Logo'
 import { Mascot } from '../components/beamdrop/Mascot/Mascot'
 
